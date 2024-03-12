@@ -1,0 +1,4 @@
+name=LINUX-AUDITD-AUSHAPE-V3-SPLIT-EVENTS ProcessorFilter 73d7cd9
+path=Event Sources/LinuxAuditd
+type=ProcessorFilter
+uuid=73d7cd93-6b29-4bc4-a610-2779c29bf207

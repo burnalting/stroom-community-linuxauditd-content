@@ -1,0 +1,4 @@
+name=WellKnownLinuxNPEUsers
+path=Event Sources/LinuxAuditd
+type=Dictionary
+uuid=f87c2075-7802-4eac-bd41-0af7456f0729

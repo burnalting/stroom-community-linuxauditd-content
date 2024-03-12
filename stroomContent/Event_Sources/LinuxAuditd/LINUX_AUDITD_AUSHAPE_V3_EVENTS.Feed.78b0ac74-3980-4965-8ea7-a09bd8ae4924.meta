@@ -1,0 +1,9 @@
+{
+  "type" : "Feed",
+  "uuid" : "78b0ac74-3980-4965-8ea7-a09bd8ae4924",
+  "name" : "LINUX-AUDITD-AUSHAPE-V3-EVENTS",
+  "version" : "319e155d-e9d4-4eee-a85c-3d686d5e07e7",
+  "reference" : false,
+  "streamType" : "Raw Events",
+  "status" : "RECEIVE"
+}

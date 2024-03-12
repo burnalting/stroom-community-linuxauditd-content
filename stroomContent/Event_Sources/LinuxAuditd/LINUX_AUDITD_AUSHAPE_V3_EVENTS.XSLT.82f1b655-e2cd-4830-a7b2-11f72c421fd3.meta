@@ -1,0 +1,7 @@
+{
+  "type" : "XSLT",
+  "uuid" : "82f1b655-e2cd-4830-a7b2-11f72c421fd3",
+  "name" : "LINUX-AUDITD-AUSHAPE-V3-EVENTS",
+  "version" : "357f492d-87c2-4e3c-8219-fcf0ac2d00de",
+  "description" : "Transform Linux Auditd events from an XML form defined by the Opensource aushape utility - See https://scribery.github.io/aushape into the Stroom Event Logging Schema"
+}

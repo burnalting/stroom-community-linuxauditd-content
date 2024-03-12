@@ -1,0 +1,6 @@
+{
+  "type" : "Pipeline",
+  "uuid" : "71e7455c-59d0-414b-8338-7d66c8d4f089",
+  "name" : "LINUX-AUDITD-AUSHAPE-V3-SPLIT-EVENTS",
+  "version" : "25628803-b5be-419c-8dc8-9609e059d8bf"
+}

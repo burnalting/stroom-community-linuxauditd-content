@@ -1,0 +1,13 @@
+{
+  "type" : "Feed",
+  "uuid" : "38d41270-8900-48f2-9c2b-6c3da5c3c6d6",
+  "name" : "LINUX-AUDITD-AUSEARCH-V3-EVENTS",
+  "version" : "68d443c3-a222-4f79-b2ff-5233184aa63e",
+  "description" : "Linux Auditd Events\nGenerated via ausearch -i based command",
+  "classification" : "",
+  "encoding" : "UTF-8",
+  "contextEncoding" : "UTF-8",
+  "reference" : false,
+  "streamType" : "Raw Events",
+  "status" : "RECEIVE"
+}

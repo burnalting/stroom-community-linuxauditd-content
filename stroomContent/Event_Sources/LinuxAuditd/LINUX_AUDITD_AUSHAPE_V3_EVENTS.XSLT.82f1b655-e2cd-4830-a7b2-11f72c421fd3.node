@@ -1,0 +1,4 @@
+name=LINUX-AUDITD-AUSHAPE-V3-EVENTS
+path=Event Sources/LinuxAuditd
+type=XSLT
+uuid=82f1b655-e2cd-4830-a7b2-11f72c421fd3

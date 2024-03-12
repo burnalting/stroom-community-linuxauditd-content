@@ -1,0 +1,7 @@
+{
+  "type" : "XSLT",
+  "uuid" : "0fc5fcae-36a4-45c3-a52b-0781379731f8",
+  "name" : "LINUX-AUDITD-AUSEARCH-V3-EVENTS-NNPE",
+  "version" : "24ecfd18-8157-4041-b1cb-abb28b6546e3",
+  "description" : "Translation to pass through (copy) events where not all User elements have a type of 'NPE'. Thus we get events were at least one identified user is in the event."
+}

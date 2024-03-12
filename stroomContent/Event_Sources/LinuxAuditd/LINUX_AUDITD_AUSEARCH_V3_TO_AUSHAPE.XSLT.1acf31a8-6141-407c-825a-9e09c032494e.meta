@@ -1,0 +1,7 @@
+{
+  "type" : "XSLT",
+  "uuid" : "1acf31a8-6141-407c-825a-9e09c032494e",
+  "name" : "LINUX-AUDITD-AUSEARCH-V3-TO-AUSHAPE",
+  "version" : "d373598f-b2da-41e1-b448-8f3915e99701",
+  "description" : "Translation a simple key/value pair xml structure into the XML form defined by the Opensource aushape utility - See https://scribery.github.io/aushape/"
+}

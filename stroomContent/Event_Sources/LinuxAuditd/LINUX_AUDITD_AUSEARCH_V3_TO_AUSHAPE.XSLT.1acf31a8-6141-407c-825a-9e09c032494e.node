@@ -1,0 +1,4 @@
+name=LINUX-AUDITD-AUSEARCH-V3-TO-AUSHAPE
+path=Event Sources/LinuxAuditd
+type=XSLT
+uuid=1acf31a8-6141-407c-825a-9e09c032494e

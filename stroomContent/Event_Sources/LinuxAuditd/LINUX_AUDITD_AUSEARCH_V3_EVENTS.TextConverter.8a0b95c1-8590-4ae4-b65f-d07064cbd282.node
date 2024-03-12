@@ -1,0 +1,4 @@
+name=LINUX-AUDITD-AUSEARCH-V3-EVENTS
+path=Event Sources/LinuxAuditd
+type=TextConverter
+uuid=8a0b95c1-8590-4ae4-b65f-d07064cbd282

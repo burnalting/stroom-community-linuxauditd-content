@@ -1,0 +1,7 @@
+{
+  "type" : "Dictionary",
+  "uuid" : "f87c2075-7802-4eac-bd41-0af7456f0729",
+  "name" : "WellKnownLinuxNPEUsers",
+  "version" : "d4c4ab15-9e5d-420f-b4b2-99d44a7a316a",
+  "description" : "This is a list of well known Linux Non Person Entity (system) users. This list is used to label a User/Type as 'NPE' so that different actions can be taken.\nFor example, the processed event can be stored in a  different Feed to that of the inbound raw Feed. This way, events which only have 'system' users involved\ncan have a smaller retention period."
+}

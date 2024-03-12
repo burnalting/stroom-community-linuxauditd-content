@@ -1,0 +1,4 @@
+name=LINUX-AUDITD-AUSEARCH-V3-EVENTS-NNPE
+path=Event Sources/LinuxAuditd
+type=XSLT
+uuid=0fc5fcae-36a4-45c3-a52b-0781379731f8

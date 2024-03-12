@@ -1,0 +1,4 @@
+name=LINUX-AUDITD-AUSEARCH-V3-SPLIT-EVENTS ProcessorFilter 15c0e39
+path=Event Sources/LinuxAuditd
+type=ProcessorFilter
+uuid=15c0e390-c1c8-4c60-824b-2422fc3db511

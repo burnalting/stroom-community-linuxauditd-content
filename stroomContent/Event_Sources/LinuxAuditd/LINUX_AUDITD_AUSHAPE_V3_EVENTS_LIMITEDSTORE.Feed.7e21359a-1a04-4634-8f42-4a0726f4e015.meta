@@ -1,0 +1,9 @@
+{
+  "type" : "Feed",
+  "uuid" : "7e21359a-1a04-4634-8f42-4a0726f4e015",
+  "name" : "LINUX-AUDITD-AUSHAPE-V3-EVENTS-LIMITEDSTORE",
+  "version" : "780b64fc-0c3b-4087-b209-16f3a419e066",
+  "reference" : false,
+  "streamType" : "Raw Events",
+  "status" : "RECEIVE"
+}

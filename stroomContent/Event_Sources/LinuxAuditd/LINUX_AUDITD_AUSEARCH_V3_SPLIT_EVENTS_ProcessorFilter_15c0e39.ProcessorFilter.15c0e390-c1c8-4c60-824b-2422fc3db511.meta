@@ -1,0 +1,36 @@
+{
+  "uuid" : "15c0e390-c1c8-4c60-824b-2422fc3db511",
+  "queryData" : {
+    "dataSource" : {
+      "type" : "StreamStore",
+      "uuid" : "0",
+      "name" : "StreamStore"
+    },
+    "expression" : {
+      "type" : "operator",
+      "children" : [ {
+        "type" : "term",
+        "field" : "Feed",
+        "condition" : "IS_DOC_REF",
+        "value" : "LINUX-AUDITD-AUSEARCH-V3-EVENTS",
+        "docRef" : {
+          "type" : "Feed",
+          "uuid" : "38d41270-8900-48f2-9c2b-6c3da5c3c6d6",
+          "name" : "LINUX-AUDITD-AUSEARCH-V3-EVENTS"
+        }
+      }, {
+        "type" : "term",
+        "field" : "Type",
+        "condition" : "EQUALS",
+        "value" : "Raw Events"
+      } ]
+    }
+  },
+  "priority" : 10,
+  "reprocess" : false,
+  "enabled" : true,
+  "deleted" : false,
+  "processorUuid" : "e4e89238-d96e-4e66-94bb-9d80786dc8b8",
+  "pipelineUuid" : "56fa623e-df7e-4f6c-b395-7bf959e9770b",
+  "pipelineName" : "LINUX-AUDITD-AUSEARCH-V3-SPLIT-EVENTS"
+}

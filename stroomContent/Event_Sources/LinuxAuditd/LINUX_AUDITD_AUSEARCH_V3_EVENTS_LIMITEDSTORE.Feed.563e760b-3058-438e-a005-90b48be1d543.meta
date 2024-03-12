@@ -1,0 +1,9 @@
+{
+  "type" : "Feed",
+  "uuid" : "563e760b-3058-438e-a005-90b48be1d543",
+  "name" : "LINUX-AUDITD-AUSEARCH-V3-EVENTS-LIMITEDSTORE",
+  "version" : "c7b8b12c-d7c0-495e-a664-f7785d39317f",
+  "reference" : false,
+  "streamType" : "Raw Events",
+  "status" : "RECEIVE"
+}

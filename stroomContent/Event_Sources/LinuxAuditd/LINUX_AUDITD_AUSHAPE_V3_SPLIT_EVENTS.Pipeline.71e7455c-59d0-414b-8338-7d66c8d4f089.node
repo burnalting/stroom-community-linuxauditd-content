@@ -1,0 +1,4 @@
+name=LINUX-AUDITD-AUSHAPE-V3-SPLIT-EVENTS
+path=Event Sources/LinuxAuditd
+type=Pipeline
+uuid=71e7455c-59d0-414b-8338-7d66c8d4f089

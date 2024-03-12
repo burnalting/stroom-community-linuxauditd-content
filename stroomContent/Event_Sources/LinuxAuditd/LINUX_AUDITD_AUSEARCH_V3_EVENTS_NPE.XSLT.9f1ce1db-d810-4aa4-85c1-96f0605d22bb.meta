@@ -1,0 +1,7 @@
+{
+  "type" : "XSLT",
+  "uuid" : "9f1ce1db-d810-4aa4-85c1-96f0605d22bb",
+  "name" : "LINUX-AUDITD-AUSEARCH-V3-EVENTS-NPE",
+  "version" : "ef1f06fb-5892-40e8-acb1-84fdbb9427f0",
+  "description" : "Translation to pass through (copy) events where all User elements have a type of 'NPE'. Thus we get events were only Non Person Entity (system) users are involved."
+}

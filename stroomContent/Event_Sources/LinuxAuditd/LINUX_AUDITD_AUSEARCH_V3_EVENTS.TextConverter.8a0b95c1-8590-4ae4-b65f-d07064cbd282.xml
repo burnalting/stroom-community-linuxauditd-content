@@ -1,0 +1,338 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- 
+20231129:
+- Handle user events with cwd values with embedded spaces
+20230601:
+- Handle kernel type events
+20230110:
+- Change the key value pair parsing to be a reverse parse in certain places
+- Handle pam_tally2 for user_acct messages
+- Re-work this data spliter to handle both multi-line records and also missing node values.
+20230101:
+- Sometimes user_cmd records do not have a subject field
+20211228:
+- Handle certain avc records
+20211107:
+- Key names can have minus chars ... ensure all regex's for keys include \-
+-->
+
+<!-- maxBuffer needs setting as some records are very long -->
+<dataSplitter bufferSize="5000000" xmlns="data-splitter:3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="data-splitter:3 file://data-splitter-v3.0.xsd" version="3.0">
+
+  <!-- Match each event line using four dashes and a newline as the delimiter -->
+  <split delimiter="----\n">
+
+    <!-- Take the match lines (using group 1 ignores the delimiters) -->
+    <group value="$1" id="event">
+
+      <!-- We split the matches lines using '\nnode' as the delimiter
+      A findReplaceFilter with find (\n)type= replace: $1node= type= and set regex property to true ensures a node=
+      -->
+      <split delimiter="\nnode=">
+
+        <!-- Take the matched line -->
+        <group value="$1" id="nodeinner">
+
+          <!-- We allow for a null node= value, which indicates a faulty agent -->
+          <regex pattern="^(\s*node=)?([^ ]+|)\s*type=([^ ]+) msg=audit\(([^\)]+)(\) :)?(.+)" dotAll="true">
+
+            <!--
+            <data name="debug_nodeinner" value="$0"/>
+            -->
+            <data name="type" value="$3">
+              <data name="type" value="$3" />
+              <data name="node" value="$2" />
+              <group value="$4" id="nodetimeid">
+                <regex pattern="^(.+):(.+)">
+                  <data name="eventTime" value="$1" />
+                  <data name="eventId" value="$2" />
+                </regex>
+              </group>
+              <group value="$6" ignoreErrors="true" id="noderest">
+
+                <!-- Cater for execve argc lines -->
+
+                <!-- 1st: 
+                argc=3 a0=/bin/sh a1=-c a2_len=12612 a2[0]=set -...
+                -->
+                <regex pattern="argc=(.+) a0=([^\s]+) (.+)" dotAll="true">
+                  <data name="argc" value="$1" />
+                  <data name="a0" value="$2" />
+                  <data name="an" value="$3" />
+                </regex>
+
+                <!-- 2nd:
+                a2[1]=.tmp_dfs_main.o -T /home/burn/rpmbuild/ ...
+                or
+                <space><space>a833=0 a834=0 ...
+                -->
+                <regex pattern="(a\d+\[\d+\]=(.+))" dotAll="true">
+                  <data name="an" value="$1" />
+                </regex>
+                <regex pattern="^\s\s(a\d+=(.+))" dotAll="true">
+                  <data name="an" value="$1" />
+                </regex>
+
+                <!-- Cater for proctitle as one item -->
+                <regex pattern="proctitle=(.+)" dotAll="true">
+                  <data name="proctitle" value="$1" />
+                </regex>
+
+                <!-- User_cmd records -->
+
+                <!-- 20231129: Ensure cwd can match directories with spaces in them -->
+                <regex pattern="pid=([^ ]+)\suid=([^ ]+)\sauid=([^ ]+)\sses=([^ ]+)\ssubj=([^ ]+)\smsg=.cwd=(.+)?\scmd=(.+)?\sterminal=([^ ]+)\sres=(.+).$" dotAll="true">
+                  <data name="pid" value="$1" />
+                  <data name="uid" value="$2" />
+                  <data name="auid" value="$3" />
+                  <data name="ses" value="$4" />
+                  <data name="subj" value="$5" />
+                  <data name="cwd" value="$6" />
+                  <data name="cmd" value="$7" />
+                  <data name="terminal" value="$8" />
+                  <data name="res" value="$9" />
+                </regex>
+
+                <!-- 20230101: Sometimes user_cmd records do not have a subj key -->
+
+                <!-- 20231129: Ensure cwd can match directories with spaces in them -->
+                <regex pattern="pid=([^ ]+)\suid=([^ ]+)\sauid=([^ ]+)\sses=([^ ]+)\smsg=.cwd=(.+)?\scmd=(.+)?\sterminal=([^ ]+)\sres=(.+).$">
+                  <data name="pid" value="$1" />
+                  <data name="uid" value="$2" />
+                  <data name="auid" value="$3" />
+                  <data name="ses" value="$4" />
+                  <data name="cwd" value="$5" />
+                  <data name="cmd" value="$6" />
+                  <data name="terminal" value="$7" />
+                  <data name="res" value="$8" />
+                </regex>
+
+                <!-- 20230101: Cater for TTY records which can have anything in their data field -->
+                <regex pattern="pid=([^ ]+)\suid=([^ ]+)\sauid=([^ ]+)\sses=([^ ]+)\smajor=([^ ]+)\sminor=([^ ]+)\scomm=([^ ]+)\sdata=(.+)">
+                  <data name="pid" value="$1" />
+                  <data name="uid" value="$2" />
+                  <data name="auid" value="$3" />
+                  <data name="ses" value="$4" />
+                  <data name="major" value="$5" />
+                  <data name="minor" value="$6" />
+                  <data name="comm" value="$7" />
+                  <data name="data" value="$8" />
+                </regex>
+
+                <!-- certain avc records -->
+                <regex pattern="pid=([^ ]+)\suid=([^ ]+)\sauid=([^ ]+)\sses=([^ ]+)\ssubj=([^ ]+)\smsg=.avc:\s+(.+)'$">
+                  <data name="pid" value="$1" />
+                  <data name="uid" value="$2" />
+                  <data name="auid" value="$3" />
+                  <data name="ses" value="$4" />
+                  <data name="subj" value="$5" />
+                  <data name="avc" value="$6" />
+                  <group value="$6" ignoreErrors="true">
+
+                    <!-- Now treat everything as key value pairs -->
+
+                    <!-- 20230110: Use reverse parse for key value pairs as it better handles unescaped ='s characters in the value -->
+                    <all>
+                      <group reverse="true" ignoreErrors="true">
+                        <regex pattern="(.*?)=([_a-z0-9\-]+)(?:\s|$)" dotAll="true">
+                          <data name="$2" value="$1" />
+                        </regex>
+                      </group>
+                    </all>
+                  </group>
+                </regex>
+
+                <!-- 20230110: Handle pam_tally2 user_acct records -->
+                <regex pattern="pid=([^ ]+)\suid=([^ ]+)\sauid=([^ ]+)\sses=([^ ]+)\ssubj=([^ ]+)\smsg=.pam_tally2\s+(.+)'$">
+                  <data name="pid" value="$1" />
+                  <data name="uid" value="$2" />
+                  <data name="auid" value="$3" />
+                  <data name="ses" value="$4" />
+                  <data name="subj" value="$5" />
+                  <data name="op" value="'pam_tally2'" />
+                  <group value="$6" ignoreErrors="true">
+
+                    <!-- Now treat everything as key value pairs -->
+                    <all>
+                      <group reverse="true" ignoreErrors="true">
+                        <regex pattern="(.*?)=([_a-z0-9\-]+)(?:\s|$)" dotAll="true">
+                          <data name="$2" value="$1" />
+                        </regex>
+                      </group>
+                    </all>
+                  </group>
+                </regex>
+
+                <!-- 20230601: Handle type=KERNEL events which have the pattern
+                node=<somenode> type=KERNEL msg=audit(2023-06-01 10:00:00.123:1) : initialized
+                Note that newer kernels have the pattern
+                node=<somenode> type=KERNEL msg=audit(2023-06-01 10:00:00.123:1) : state=initialized enabled=%u res=1
+                which will parse correctly due to it's standard key value pair format
+                -->
+                <regex pattern="initialized">
+                  <data name="state" value="initialized" />
+                </regex>
+
+                <!-- Cater for sockaddr as one item -->
+                <regex pattern="saddr=\{(.+)\}">
+                  <data name="saddr" value="$1" />
+                </regex>
+
+                <!-- Cater for avc messages -->
+                <regex pattern="avc:\s+(.+) for  (.+)">
+                  <data name="avc" value="$1" />
+                  <group value="$2" ignoreErrors="true">
+
+                    <!-- Now treat everything as key value pairs -->
+
+                    <!-- 20230110: Use reverse parse for key value pairs as it better handles unescaped ='s characters in the value -->
+
+                    <!-- Was 20230110:
+                    <regex pattern="([^=\s]+)=((?:[\\]=|[^=])+)(?:\s|$)">
+                    <data name="$1" value="$2" />
+                    </regex>
+                    -->
+                    <all>
+                      <group reverse="true" ignoreErrors="true">
+                        <regex pattern="(.*?)=([_a-z0-9\-]+)(?:\s|$)" dotAll="true">
+                          <data name="$2" value="$1" />
+                        </regex>
+                      </group>
+                    </all>
+                  </group>
+                </regex>
+
+                <!-- Cater for malformed msg= strings by ignoring up to an exe= -->
+                <regex pattern="msg=&apos;avc.+(exe=.+)&apos;">
+                  <group value="$1" ignoreErrors="true">
+
+                    <!-- Now treat everything as key value pairs -->
+
+                    <!-- Was 20230110:
+                    <regex pattern="([^=\s]+)=((?:[\\]=|[^=])+)(?:\s|$)">
+                    <data name="$1" value="$2" />
+                    </regex>
+                    -->
+                    <all>
+                      <group reverse="true" ignoreErrors="true">
+                        <regex pattern="(.*?)=([_a-z0-9\-]+)(?:\s|$)" dotAll="true">
+                          <data name="$2" value="$1" />
+                        </regex>
+                      </group>
+                    </all>
+
+                    <!--
+                    <all>
+                    <group reverse="true" ignoreErrors="true">
+                    <regex pattern="(.*?)=([^=]+?)(?:($|\s))">
+                    <data name="$2" value="$1" />
+                    </regex>
+                    </group>
+                    </all>
+                    -->
+                  </group>
+                </regex>
+
+                <!-- Cater for msg='\s*something=....' by stripping the msg and apostrophes leaving something= -->
+                <regex pattern="^(.+)\smsg=&apos;\s*([^=]+=.+)&apos;">
+                  <group value="$1" ignoreErrors="true">
+
+                    <!-- Now treat everything as key value pairs -->
+
+                    <!--
+                    <regex pattern="([^=\s]+)=((?:[\\]=|[^=])+)(?:\s|$)">
+                    <data name="$1" value="$2" />
+                    </regex>
+                    -->
+                    <all>
+                      <group reverse="true" ignoreErrors="true">
+                        <regex pattern="(.*?)=([_a-z0-9\-]+)(?:\s|$)" dotAll="true">
+                          <data name="$2" value="$1" />
+                        </regex>
+                      </group>
+                    </all>
+
+                    <!--
+                    <all>
+                    <group reverse="true" ignoreErrors="true">
+                    <regex pattern="(.*?)=([^=]+?)(?:($|\s))">
+                    <data name="$2" value="$1" />
+                    </regex>
+                    </group>
+                    </all>
+                    -->
+                  </group>
+                  <group value="$2" ignoreErrors="true">
+
+                    <!--
+                    <regex pattern="([^=\s]+)=((?:[\\]=|[^=])+)(?:\s|$)">
+                    <data name="$1" value="$2" />
+                    </regex>
+                    -->
+                    <all>
+                      <group reverse="true" ignoreErrors="true">
+                        <regex pattern="(.*?)=([_a-z0-9\-]+)(?:\s|$)" dotAll="true">
+                          <data name="$2" value="$1" />
+                        </regex>
+                      </group>
+                    </all>
+
+                    <!--
+                    <all>
+                    <group reverse="true" ignoreErrors="true">
+                    <regex pattern="(.*?)=([^=]+?)(?:($|\s))">
+                    <data name="$2" value="$1" />
+                    </regex>
+                    </group>
+                    </all>
+                    -->
+                  </group>
+                </regex>
+
+                <!-- Treat everything else as key value pairs -->
+
+                <!-- We note that ausearch can generate values that have embedded spaces or equals characters
+                About the only thing we can be certain of is that for the form
+                <key> '=' <value>
+                <key> is a word followed by an equals character
+                -->
+
+                <!--
+                <regex pattern="([^=\s]+)=((?:[\\]=|[^=])+)(?:\s|$)">
+                <data name="$1" value="$2" />
+                </regex>
+                -->
+
+                <!-- 20200704 - Note that keys can have minus chars in them now -->
+                <all>
+                  <group reverse="true" ignoreErrors="true">
+                    <regex pattern="(.*?)=([_a-z0-9\-]+)(?:\s|$)" dotAll="true">
+                      <data name="$2" value="$1" />
+                    </regex>
+                  </group>
+                </all>
+
+                <!--
+                <all>
+                <group reverse="true" ignoreErrors="true">
+                <regex pattern="(.*?)=([^=]+?)(?:($|\s))">
+                <data name="$2" value="$1" />
+                </regex>
+                </group>
+                </all>
+                -->
+              </group>
+            </data>
+          </regex>
+
+          <!-- Include this to discard the initial record delimiter -->
+          <regex pattern="^----\nnode=" dotAll="true" />
+
+          <!-- Match errors -->
+          <regex pattern=".*" />
+        </group>
+      </split>
+    </group>
+  </split>
+</dataSplitter>

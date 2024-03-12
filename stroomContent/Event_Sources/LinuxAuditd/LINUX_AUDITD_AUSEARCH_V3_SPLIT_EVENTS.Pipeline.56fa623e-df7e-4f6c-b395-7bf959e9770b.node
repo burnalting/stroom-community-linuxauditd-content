@@ -1,0 +1,4 @@
+name=LINUX-AUDITD-AUSEARCH-V3-SPLIT-EVENTS
+path=Event Sources/LinuxAuditd
+type=Pipeline
+uuid=56fa623e-df7e-4f6c-b395-7bf959e9770b
