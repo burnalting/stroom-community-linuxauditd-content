@@ -2,7 +2,7 @@
   "type" : "TextConverter",
   "uuid" : "8a0b95c1-8590-4ae4-b65f-d07064cbd282",
   "name" : "LINUX-AUDITD-AUSEARCH-V3-EVENTS",
-  "version" : "907dc9b9-dd2d-4e7c-8749-0507d5506df5",
+  "version" : "5bb80c70-4243-40fc-9c11-5d4c4f4098bc",
   "description" : "Convert Linux auditd's ausearch -i output into a simple key/value pair xml structure",
   "converterType" : "DATA_SPLITTER"
 }

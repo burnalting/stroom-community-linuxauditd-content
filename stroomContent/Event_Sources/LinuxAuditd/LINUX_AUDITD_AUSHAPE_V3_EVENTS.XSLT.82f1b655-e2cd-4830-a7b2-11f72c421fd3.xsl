@@ -1,8 +1,23 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<xsl:stylesheet xmlns="event-logging:3" xmlns:stroom="stroom" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xs="http://www.w3.org/2001/XMLSchema" version="3.0">
+<xsl:stylesheet xmlns="event-logging:3" xmlns:stroom="stroom" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:map="http://www.w3.org/2005/xpath-functions/map" version="3.0">
 
   <!--
   Change Log:
+  20251220:
+  - Add support for all the 32 bit socketcall system calls
+  20251219:
+  - Add optional destination and source port numbers (dport and sport) to netfilter_pkt type records. Released to kernel 2025-12-17
+  20250427:
+  - Use map function rather and index lookup for Well Known NPE Linux user checks
+  20250422:
+  - Some systems generate two identical (so far seen) data/fanotify records, we need to cater for this 'bug'
+  20250205:
+  - Add support for additional uringop table entries
+  20240922:
+  - For chown, use emitUserId function for file ownership as it addresses User/Type
+  - Decode the hex encoded device rule value for usbguard user_device events
+  20240921:
+  - Add internally defined _unknown_ user as a NPE user
   20231206:
   - Add support for syscall:close
   - As pretranslation filter no longer removes '-' from qnames, need to cater for certain hyphenated field names (prog-id, nl-mcgrp, old-level, new-level)
@@ -241,6 +256,17 @@
     </xsl:for-each>
   </xsl:variable>
 
+  <!-- 20250427: Use map rather than index -->
+  <xsl:variable name="wellKnownNPELinuxUsers" as="map(*)">
+    <xsl:map>
+      <xsl:for-each select="tokenize(stroom:dictionary('WellKnownLinuxNPEUsers'), '\n')[normalize-space()]">
+        <xsl:if test="not(starts-with(normalize-space(.),'#'))">
+          <xsl:map-entry key="lower-case(.)" />
+        </xsl:if>
+      </xsl:for-each>
+    </xsl:map>
+  </xsl:variable>
+
   <!-- Now match the inbound events -->
   <xsl:template match="log">
     <Events xsi:schemaLocation="event-logging:3 file://event-logging-v4.0.0.xsd" Version="4.0.0">
@@ -254,11 +280,7 @@
     <xsl:variable name="terminal" select="data/*[name()=$act]/terminal/@i" />
     <xsl:choose>
 
-      <!-- Skip events of type
-      
-      grp_mgmt/op/@i = 'delete-shadow-group'
-      
-      -->
+      <!-- Skip Events Criteria -->
 
       <!-- 20211107: (for cron actions)
       user_end - Triggered when a user-space session is terminated.
@@ -370,15 +392,21 @@
       <xsl:when test="starts-with($act, 'anom_')" />
 
       <!-- Skip operations: delete-shadow-group, add-shadow-group -->
+
+      <!-- 20240510: No longer skip these -->
+
+      <!--
       <xsl:when test="contains(data/grp_mgmt/op/@i,'-shadow-group')" />
+      -->
 
       <!-- 20211107: And PAM:accounting or PAM:Authentication - we have other authentication events that cover these actions
       20211222: Ignore user_acct/op/@i='start' in addition to 'PAM:accounting'
       20230110: Also ignore user_acct/op/@i='pam_tally2'
       user_acct - Triggered when a user-space user authorization attempt is detected (op='PAM:accounting' or op='start')
       user_auth - Triggered when a user-space user authentication attempt is detected.
+      20240508 - Allow user_acct/op/@i='PAM:accounting' as we gain client details
       -->
-      <xsl:when test="matches(data/user_acct/op/@i,'PAM:accounting|start|pam_tally2')" />
+      <xsl:when test="matches(data/user_acct/op/@i,'start|pam_tally2')" />
       <xsl:when test="data/user_auth/op/@i = 'PAM:authentication'" />
 
       <!-- Don't record pam_tally2 resets -->
@@ -503,7 +531,17 @@
     -->
     <xsl:variable name="_clientH" select="./data//hostname[1]/@i" />
     <xsl:variable name="_clientI" select="./data//addr/@i" />
+
+    <!-- 20240510: Improve the collection of uid value
     <xsl:variable name="_uid" select="data/syscall/uid[1]/@i|data/user_end/uid/@i" />
+    -->
+    <xsl:variable name="_uid">
+      <xsl:choose>
+        <xsl:when test="./data//uid/@i">
+          <xsl:value-of select="./data/*[position()=1]/uid/@i" />
+        </xsl:when>
+      </xsl:choose>
+    </xsl:variable>
     <xsl:variable name="_myhost" select="translate(stroom:meta('MyHost'),'&quot;', '')" />
     <xsl:variable name="_myip" select="translate(stroom:meta('MyIPaddress'),'&quot;', '')" />
     <xsl:variable name="_mymeta" select="translate(stroom:meta('MyMeta'),'&quot;', '')" />
@@ -761,7 +799,10 @@
             '0' : 'nop','1' : 'readv','2' : 'writev','3' : 'fsync','4' : 'read_fixed','5' : 'write_fixed','6' : 'poll_add','7' : 'poll_remove','8' : 'sync_file_range','9' : 'sendmsg',
             '10' : 'recvmsg','11' : 'timeout','12' : 'timeout_remove','13' : 'accept','14' : 'async_cancel','15' : 'link_timeout','16' : 'connect','17' : 'fallocate','18' : 'openat',
             '19' : 'close','20' : 'files_update','21' : 'statx','22' : 'read','23' : 'write','24' : 'fadvise','25' : 'madvise','26' : 'send','27' : 'recv','28' : 'openat2','29' : 'epoll_ctl',
-            '30' : 'splice','31' : 'provide_bufers','32' : 'remove_bufers','33' : 'tee','34' : 'shutdown','35' : 'renameat','36' : 'unlinkat'
+            '30' : 'splice','31' : 'provide_bufers','32' : 'remove_bufers','33' : 'tee','34' : 'shutdown','35' : 'renameat','36' : 'unlinkat', '37' :  'mkdirat', '38' :  'symlinkat',
+            '39' :  'linkat', '40' :  'msg_ring', '41' :  'fsetxattr', '42' :  'setxattr', '43' :  'fgetxattr', '44' :  'getxattr', '46' :  'uring_cmd', '48' : 'sendmsg_zc', 
+            '50' :  'waitid', '51' :  'futex_wait', '52' :  'futex_wake', '53' :  'futex_waitv', '54' :  'fixed_fd_install', '55' :  'ftruncate', '56' :  'bind', '57' :  'listen'
+
             }">      
           </xsl:variable>
           <xsl:choose>
@@ -777,6 +818,23 @@
           <xsl:value-of select="data/syscall/syscall/@i" />
         </xsl:when>
 
+        <!-- 20240511: For grp_mgmt and grp_chauthtok events the op is the complete message from the shadow-utils utility (groupmod, etc) as per
+        -n
+        grp_mgmt changing /etc/group; group <group_name>/<gid>, new name: <name>
+        grp_mgmt changing /etc/gshadow; group <group_name>, new name: <name>
+        grp_mgmt changing /etc/passwd; group <group_name>/<gid, new name: <name>
+        -p
+        grp_mgmtchanging /etc/group; group <group_name>/<gid>, new password
+        -g
+        grp_mgmt changing /etc/group; group <group_name>/<gid>, new gid: <gid>
+        grp_mgmt changing /etc/passwd; group <group_name>/<gid, new gud: <gid>
+        
+        So if changing, then set subact to be the string 'changing <file>'
+        -->
+        <xsl:when test="matches($act,'grp_mgmt|grp_chauthtok') and starts-with(data//op/@i, 'changing /')">
+          <xsl:value-of select="substring-before(data//op/@i, ';')" />
+        </xsl:when>
+
         <!-- When generating the sub-action string check for multiple data//op elements - some firewall generated events provide mulitple data/netfilter_cfg (and hence data//op) subelements 20210101 -->
         <xsl:when test="count(data//op) = 1">
           <xsl:value-of select="replace(data//op/@i,'&quot;', '')" />
@@ -788,7 +846,9 @@
           <xsl:value-of select="data/seccomp/syscall/@i" />
         </xsl:when>
         <xsl:when test="data/fanotify and data/syscall">
-          <xsl:value-of select="concat(data/syscall/syscall/@i, ':', data/fanotify/resp/@i)" />
+
+          <!-- 20250422: Can have multiple data/fanotify records -->
+          <xsl:value-of select="concat(data/syscall/syscall/@i, ':', distinct-values(data/fanotify/resp/@i))" />
         </xsl:when>
         <xsl:when test="$act='software_update'">
           <xsl:value-of select="data//sw_type/@i" />
@@ -922,7 +982,7 @@
         </xsl:when>
 
         <!-- Authentication -->
-        <xsl:when test="data/user_end|data/user_start|data/user_login|data/user_err">
+        <xsl:when test="data/user_end|data/user_start|data/user_login|data/user_acct|data/user_err">
           <xsl:call-template name="emitAuthenticate" />
         </xsl:when>
         <xsl:when test="data/user_chauthtok and not(starts-with($subact, 'PAM'))">
@@ -1176,7 +1236,11 @@
           <xsl:call-template name="emitAcctAction" />
         </xsl:when>
 
-        <!-- Group Password change -->
+        <!-- Group Password change 
+        
+        20240511: Noting the message is
+        grp_chauthok changing /etc/gshadow; group <group_name>, new password
+        -->
         <xsl:when test="$act = 'grp_chauthtok' ">
           <xsl:call-template name="emitGrpPasswordChange" />
         </xsl:when>
@@ -1288,6 +1352,7 @@
               <xsl:value-of select="stroom:log('WARN', concat('Stream Id: ', stroom:stream-id(), ' has an unknown event - ', $act, ':', $subact, ' T/E:', @time, '/', @serial, ' Host - MyHost:', $_myhost, ' MyIPaddress:', $_myip, ' RemoteHost:', $remoteHost, ' Version:', $Version))" />
             </xsl:if>
             <Data Name="AgentVersion" Value="{$Version}" />
+            <Data Name="UnknownStreamRef" Value="{concat(stroom:source-id(), ':', stroom:part-no(), ':', stroom:record-no())}" />
             <xsl:call-template name="processIncidentals" />
             <xsl:call-template name="processPathIncidentals" />
           </Unknown>
@@ -1468,9 +1533,33 @@
           </xsl:for-each>
 
           <!-- For ausearch->aushape we have an elements and all elements are arguements -->
+
+          <!-- 20240510 - lets make this more efficient as well as dropping the trailing space 
           <xsl:for-each select="data/execve/an">
-            <xsl:value-of select="concat(normalize-space(@i), ' ')" />
+          <xsl:value-of select="concat(normalize-space(@i), ' ')" />
           </xsl:for-each>
+          -->
+
+          <!-- 20240811 - RHEL6 occassionally has multiple EXECVE lines :-(, so cater for this
+          
+          node=centos6.fqdn.org type=PATH msg=audit(2024-08-10 15:45:30.960:171879) : item=2 name=(null) inode=655766 dev=fd:00 mode=file,755 ouid=root ogid=root rdev=00:00 obj=system_u:object_r:ld_so_t:s0 nametype=NORMAL 
+          node=centos6.fqdn.org type=PATH msg=audit(2024-08-10 15:45:30.960:171879) : item=1 name=(null) inode=786434 dev=fd:00 mode=file,755 ouid=root ogid=root rdev=00:00 obj=system_u:object_r:shell_exec_t:s0 nametype=NORMAL 
+          node=centos6.fqdn.org type=PATH msg=audit(2024-08-10 15:45:30.960:171879) : item=0 name=/usr/bin/gunzip inode=786460 dev=fd:00 mode=file,755 ouid=root ogid=root rdev=00:00 obj=system_u:object_r:bin_t:s0 nametype=NORMAL 
+          node=centos6.fqdn.org type=CWD msg=audit(2024-08-10 15:45:30.960:171879) : cwd=/opt/stroom/auditd/queue 
+          node=centos6.fqdn.org type=EXECVE msg=audit(2024-08-10 15:45:30.960:171879) : argc=3 a0=/bin/sh a1=/usr/bin/gunzip a2=-t 
+          node=centos6.fqdn.org type=EXECVE msg=audit(2024-08-10 15:45:30.960:171879) : argc=4 a0=/bin/sh a1=/usr/bin/gunzip a2=-t a3=./auditdProcessed.8170.1723304719.gz 
+          node=centos6.fqdn.org type=SYSCALL msg=audit(2024-08-10 15:45:30.960:171879) : arch=x86_64 syscall=execve success=yes exit=0 a0=0x26e1040 a1=0x26ff420 a2=0x26fdd90 a3=0x7fffc20a2620 items=3 ppid=10041 pid=10042 auid=root uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=(none) ses=131 comm=gunzip exe=/bin/bash subj=system_u:system_r:system_cronjob_t:s0-s0:c0.c1023 key=cmds 
+          -->
+          <xsl:choose>
+            <xsl:when test="count(data/execve/an) > 1">
+              <xsl:for-each select="data/execve/an">
+                <xsl:value-of select="concat(normalize-space(@i), ' ')" />
+              </xsl:for-each>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="string-join(normalize-space(data/execve/an/@i), ' ')" />
+            </xsl:otherwise>
+          </xsl:choose>
 
           <!-- For mounts
           Source device is @dev in last path element, Mount point is @name in last path element
@@ -1608,10 +1697,14 @@
 
       <!-- 20221219: fanotify extensions resp=2 fan_type=1 fan_info=3137 subj_trust=3 obj_trust=5 .. -->
       <xsl:if test="data/fanotify">
-        <Data Name="fanotify_resp" Value="{data/fanotify/resp/@i}" />
-        <xsl:if test="data/fanotify/fan_type">
-          <Data Name="fanotify_info" Value="{concat('fan_type:', data/fanotify/fan_type/@i, ' fan_info:', data/fanotify/fan_info/@i, ' subj_trust:',  data/fanotify/subj_trust/@i, ' obj_trust:',  data/fanotify/obj_trust/@i)}" />
-        </xsl:if>
+
+        <!-- Cater for multiples -->
+        <xsl:for-each select="data/fanotify">
+          <Data Name="fanotify_resp" Value="{resp/@i}" />
+          <xsl:if test="fan_type">
+            <Data Name="fanotify_info" Value="{concat('fan_type:', fan_type/@i, ' fan_info:', fan_info/@i, ' subj_trust:',  subj_trust/@i, ' obj_trust:',  obj_trust/@i)}" />
+          </xsl:if>
+        </xsl:for-each>
       </xsl:if>
 
       <!-- Find other bits and pieces -->
@@ -1955,7 +2048,9 @@
           <Permissions>
             <Permission>
               <User>
-                <Id>
+
+                <!-- 20240922: Use emitUserId function for User/Id value as it will set User/Type as required -->
+                <xsl:variable name="_id">
                   <xsl:choose>
 
                     <!-- 20221222: fchownat uses a2 as the new uid, the rest use a1 -->
@@ -1972,7 +2067,10 @@
                       </xsl:call-template>
                     </xsl:otherwise>
                   </xsl:choose>
-                </Id>
+                </xsl:variable>
+                <xsl:call-template name="emitUserId">
+                  <xsl:with-param name="_u" select="$_id" />
+                </xsl:call-template>
               </User>
             </Permission>
             <Permission>
@@ -2596,11 +2694,28 @@
       <xsl:when test="$act='add_group'">
         <Create>
           <Group>
-            <Id>
+
+            <!-- 20240510: As the group id can sometimes be of the form gname(gid), run it through the emitUserId template -->
+            <xsl:variable name="_gid">
               <xsl:value-of select="./data/add_group/id/@i" />
               <xsl:if test="not(./data/add_group/id)">
                 <xsl:value-of select="./data/add_group/acct/@i" />
               </xsl:if>
+            </xsl:variable>
+            <xsl:call-template name="emitUserId">
+              <xsl:with-param name="_u" select="lower-case($_gid)" />
+            </xsl:call-template>
+          </Group>
+          <xsl:call-template name="emitOutcome" />
+          <xsl:call-template name="processIncidentals" />
+        </Create>
+      </xsl:when>
+      <xsl:when test="$subact='add-shadow-group'">
+        <Create>
+          <Group>
+            <Type>ShadowGroup</Type>
+            <Id>
+              <xsl:value-of select="./data/grp_mgmt/id/@i" />
             </Id>
           </Group>
           <xsl:call-template name="emitOutcome" />
@@ -2620,20 +2735,131 @@
           <xsl:call-template name="processIncidentals" />
         </Update>
       </xsl:when>
-      <xsl:when test="./data/del_group or $subact='delete-group'">
+      <xsl:when test="./data/del_group or matches($subact, 'delete-group|delete-shadow-group')">
         <Delete>
           <Group>
-            <Id>
+
+            <!-- 20240510: As the group id can sometimes be of the form gname(gid), run it through the emitUserId template -->
+            <xsl:variable name="_gid">
               <xsl:value-of select="./data/del_group/grp/@i" />
               <xsl:if test="not(./data/del_group/grp)">
                 <xsl:value-of select="./data/del_group/id/@i" />
               </xsl:if>
               <xsl:value-of select="./data/grp_mgmt/acct/@i" />
-            </Id>
+              <xsl:value-of select="./data/grp_mgmt/id/@i" />
+            </xsl:variable>
+            <xsl:if test="$subact = 'delete-shadow-group'">
+              <Type>ShadowGroup</Type>
+            </xsl:if>
+            <xsl:call-template name="emitUserId">
+              <xsl:with-param name="_u" select="lower-case($_gid)" />
+            </xsl:call-template>
+
+            <!-- 20240511: Include the original provided id string if of the form gname(gid) -->
+            <xsl:if test="contains($_gid, '(')">
+              <Data Name="OriginalId" Value="{$_gid}" />
+            </xsl:if>
           </Group>
           <xsl:call-template name="emitOutcome" />
           <xsl:call-template name="processIncidentals" />
         </Delete>
+      </xsl:when>
+
+      <!-- 20240510: grp_mgmt
+      changing <file>; group <oldgname>/<gid>, new name: <newgroupname>
+      changing <file>; group <oldgname>, new name: <newgroupname>
+      changing <file>; group <oldgname>/<gid>, new gid: <newgid>
+      changing <file>; group <oldgname>/<gid>, new password
+      
+      -->
+      <xsl:when test="$act='grp_mgmt' and starts-with($subact, 'changing ')">
+        <xsl:variable name="op" select="data/grp_mgmt/op/@i" />
+        <Update>
+          <xsl:analyze-string select="$op" regex="^changing ([^;]+); group ([^/]+)/(\d+), new (name|gid): (.+)$">
+            <xsl:matching-substring>
+              <Before>
+                <Group>
+                  <Id>
+                    <xsl:value-of select="regex-group(2)" />
+                  </Id>
+                  <Data Name="Gid" Value="{regex-group(3)}" />
+                  <Data Name="File" Value="{regex-group(1)}" />
+                </Group>
+              </Before>
+              <After>
+                <Group>
+                  <xsl:choose>
+                    <xsl:when test="regex-group(4) = 'name'">
+                      <Id>
+                        <xsl:value-of select="regex-group(5)" />
+                      </Id>
+                      <Data Name="Gid" Value="{regex-group(3)}" />
+                      <Data Name="File" Value="{regex-group(1)}" />
+                    </xsl:when>
+                    <xsl:otherwise>
+                      <Id>
+                        <xsl:value-of select="regex-group(2)" />
+                      </Id>
+                      <Data Name="Gid" Value="{regex-group(5)}" />
+                      <Data Name="File" Value="{regex-group(1)}" />
+                    </xsl:otherwise>
+                  </xsl:choose>
+                </Group>
+              </After>
+            </xsl:matching-substring>
+            <xsl:non-matching-substring>
+              <xsl:analyze-string select="$op" regex="^changing ([^;]+); group ([^/]+), new name: (.+)$">
+                <xsl:matching-substring>
+                  <Before>
+                    <Group>
+                      <Type>ShadowGroup</Type>
+                      <Id>
+                        <xsl:value-of select="regex-group(2)" />
+                      </Id>
+                      <Data Name="File" Value="{regex-group(1)}" />
+                    </Group>
+                  </Before>
+                  <After>
+                    <Group>
+                      <Type>ShadowGroup</Type>
+                      <Id>
+                        <xsl:value-of select="regex-group(3)" />
+                      </Id>
+                      <Data Name="File" Value="{regex-group(1)}" />
+                    </Group>
+                  </After>
+                </xsl:matching-substring>
+                <xsl:non-matching-substring>
+                  <xsl:analyze-string select="$op" regex="^changing ([^;]+); group ([^/]+)/(\d+), new password$">
+                    <xsl:matching-substring>
+                      <Before>
+                        <Group>
+                          <Id>
+                            <xsl:value-of select="regex-group(2)" />
+                          </Id>
+                          <Data Name="Gid" Value="{regex-group(3)}" />
+                          <Data Name="File" Value="{regex-group(1)}" />
+                        </Group>
+                      </Before>
+                      <After>
+                        <Group>
+                          <Id>
+                            <xsl:value-of select="regex-group(2)" />
+                          </Id>
+                          <Data Name="Gid" Value="{regex-group(3)}" />
+                          <Data Name="File" Value="{regex-group(1)}" />
+                          <Data Name="Update" Value="GroupPassword" />
+                        </Group>
+                      </After>
+                    </xsl:matching-substring>
+                  </xsl:analyze-string>
+                </xsl:non-matching-substring>
+              </xsl:analyze-string>
+            </xsl:non-matching-substring>
+          </xsl:analyze-string>
+          <xsl:call-template name="emitOutcome" />
+          <xsl:call-template name="processIncidentals" />
+        </Update>
       </xsl:when>
 
       <!-- 20211017 - treat unlock password as Account unlock -->
@@ -3669,12 +3895,14 @@
   </xsl:template>
 
   <!-- Group Password Change -->
+
+  <!-- 20240511: Make use of acct= to record the group name whose password is being changed -->
   <xsl:template name="emitGrpPasswordChange">
     <Authenticate>
       <Action>ChangePassword</Action>
       <Group>
         <xsl:call-template name="emitUserId">
-          <xsl:with-param name="_u" select="data/grp_chauthtok/grp/@i" />
+          <xsl:with-param name="_u" select="data/grp_chauthtok/acct/@i" />
         </xsl:call-template>
       </Group>
       <xsl:call-template name="emitOutcome" />
@@ -3711,10 +3939,12 @@
   </xsl:template>
 
   <!-- External connections - connect/accept -->
+
+  <!-- 20251220: Redo all socket system calls -->
   <xsl:template name="emitExternalConnection">
     <xsl:param name="_sact" />
     <xsl:choose>
-      <xsl:when test="$_sact = 'connect' or $_sact = 'bind' or $_sact = 'sockaddr' or $_sact = 'socketcall(connect)'">
+      <xsl:when test="matches($_sact, '^socket$') or starts-with($_sact, 'accept') or matches($_sact, 'socketcall\((socket|accept)\)')">
         <Create>
           <Object>
             <Type>Socket</Type>
@@ -3752,8 +3982,8 @@
           <xsl:call-template name="processPathIncidentals" />
         </Create>
       </xsl:when>
-      <xsl:when test="starts-with($_sact, 'accept')">
-        <Create>
+      <xsl:when test="matches($_sact, 'getsockname|getpeername|recv|recvfrom|getsockopt|recvmsg') or matches($_sact, 'socketcall\((getsock|getpeername|recv|recvfrom|getsockopt|recvmsg)\)')">
+        <View>
           <Object>
             <Type>Socket</Type>
             <Id>
@@ -3771,13 +4001,29 @@
                 </xsl:for-each>
               </Description>
             </xsl:if>
+            <xsl:if test="exists(data/socketcall)">
+              <Data Name="SocketCall">
+                <xsl:attribute name="Value">
+                  <xsl:for-each select="data/socketcall/*">
+                    <xsl:value-of select="name(.)" />
+                    <xsl:text>=</xsl:text>
+                    <xsl:value-of select="@i" />
+                    <xsl:if test="position() != last()">
+                      <xsl:text> </xsl:text>
+                    </xsl:if>
+                  </xsl:for-each>
+                </xsl:attribute>
+              </Data>
+            </xsl:if>
           </Object>
           <xsl:call-template name="emitOutcome" />
           <xsl:call-template name="processIncidentals" />
           <xsl:call-template name="processPathIncidentals" />
-        </Create>
+        </View>
       </xsl:when>
-      <xsl:when test="starts-with($_sact, 'setsockopt') or matches($_sact, 'sendmsg|sendto')">
+
+      <!-- 20251219: Support socketcall(setsockopt) -->
+      <xsl:when test="starts-with($_sact, 'setsockopt') or matches($_sact, 'connect|bind|listen|send') or matches($_sact, 'socketcall\((bind|connect|setsockopt|send|sendto|sendmsg)\)')">
         <Update>
           <After>
             <Object>
@@ -3797,6 +4043,20 @@
                   </xsl:for-each>
                 </Description>
               </xsl:if>
+              <xsl:if test="exists(data/socketcall)">
+                <Data Name="SocketCall">
+                  <xsl:attribute name="Value">
+                    <xsl:for-each select="data/socketcall/*">
+                      <xsl:value-of select="name(.)" />
+                      <xsl:text>=</xsl:text>
+                      <xsl:value-of select="@i" />
+                      <xsl:if test="position() != last()">
+                        <xsl:text> </xsl:text>
+                      </xsl:if>
+                    </xsl:for-each>
+                  </xsl:attribute>
+                </Data>
+              </xsl:if>
             </Object>
           </After>
           <xsl:call-template name="emitOutcome" />
@@ -3804,10 +4064,8 @@
           <xsl:call-template name="processPathIncidentals" />
         </Update>
       </xsl:when>
-
-      <!-- 20221221: Add recvmsg -->
-      <xsl:when test="starts-with($_sact, 'getsockopt') or $_sact = 'recvmsg'">
-        <View>
+      <xsl:when test="starts-with($_sact, 'shutdown') or matches($_sact, 'socketcall\((shutdown)\)')">
+        <Delete>
           <Object>
             <Type>Socket</Type>
             <Id>
@@ -3829,7 +4087,7 @@
           <xsl:call-template name="emitOutcome" />
           <xsl:call-template name="processIncidentals" />
           <xsl:call-template name="processPathIncidentals" />
-        </View>
+        </Delete>
       </xsl:when>
     </xsl:choose>
   </xsl:template>
@@ -3872,6 +4130,13 @@
             <IPAddress>
               <xsl:value-of select="data/netfilter_pkt/saddr/@i" />
             </IPAddress>
+
+            <!-- 20251219: Added sport if present -->
+            <xsl:if test="data/netfilter_pkt/sport">
+              <Port>
+                <xsl:value-of select="data/netfilter_pkt/sport/@i" />
+              </Port>
+            </xsl:if>
           </Device>
           <TransportProtocol>
 
@@ -3888,6 +4153,13 @@
             <IPAddress>
               <xsl:value-of select="data/netfilter_pkt/daddr/@i" />
             </IPAddress>
+
+            <!-- 20251219: Added dport if present -->
+            <xsl:if test="data/netfilter_pkt/dport">
+              <Port>
+                <xsl:value-of select="data/netfilter_pkt/dport/@i" />
+              </Port>
+            </xsl:if>
           </Device>
         </Destination>
       </Open>
@@ -4018,12 +4290,13 @@
 
   <!-- User Device
   TODO: 
-  decode encoded strings 
   better interpet keys like target
   determine device type USBMassStorage or Other one assumes
   other events
   -->
   <xsl:template name="emitUserDevice">
+
+    <!-- 20240922: Decode the hex encoded device rule value -->
     <xsl:param name="op" />
     <xsl:choose>
       <xsl:when test="$op = 'discovered-device'">
@@ -4032,7 +4305,13 @@
             <Id>
               <xsl:value-of select="data/user_device/device/@i" />
             </Id>
-            <Data Name="device_rule" Value="{data/user_device/device_rule/@i}" />
+            <Data Name="device_rule">
+              <xsl:attribute name="Value">
+                <xsl:call-template name="decode_audit_nv_string">
+                  <xsl:with-param name="str" select="data/user_device/device_rule/@i" />
+                </xsl:call-template>
+              </xsl:attribute>
+            </Data>
           </Object>
           <xsl:call-template name="emitOutcome" />
           <xsl:call-template name="processIncidentals" />
@@ -4046,7 +4325,13 @@
                 <xsl:value-of select="data/user_device/device/@i" />
               </Id>
               <Data Name="target" Value="{replace(data/user_device/target/@i, '&quot;', '')}" />
-              <Data Name="device_rule" Value="{data/user_device/device_rule/@i}" />
+              <Data Name="device_rule">
+                <xsl:attribute name="Value">
+                  <xsl:call-template name="decode_audit_nv_string">
+                    <xsl:with-param name="str" select="data/user_device/device_rule/@i" />
+                  </xsl:call-template>
+                </xsl:attribute>
+              </Data>
             </Object>
           </After>
           <xsl:call-template name="emitOutcome" />
@@ -4060,7 +4345,13 @@
             <Id>
               <xsl:value-of select="data/user_device/device/@i" />
             </Id>
-            <Data Name="device_rule" Value="{data/user_device/device_rule/@i}" />
+            <Data Name="device_rule">
+              <xsl:attribute name="Value">
+                <xsl:call-template name="decode_audit_nv_string">
+                  <xsl:with-param name="str" select="data/user_device/device_rule/@i" />
+                </xsl:call-template>
+              </xsl:attribute>
+            </Data>
           </Hardware>
           <xsl:call-template name="emitOutcome" />
           <xsl:call-template name="processIncidentals" />
@@ -4073,7 +4364,13 @@
             <Id>
               <xsl:value-of select="data/user_device/device/@i" />
             </Id>
-            <Data Name="device_rule" Value="{data/user_device/device_rule/@i}" />
+            <Data Name="device_rule">
+              <xsl:attribute name="Value">
+                <xsl:call-template name="decode_audit_nv_string">
+                  <xsl:with-param name="str" select="data/user_device/device_rule/@i" />
+                </xsl:call-template>
+              </xsl:attribute>
+            </Data>
           </Hardware>
           <xsl:call-template name="emitOutcome" />
           <xsl:call-template name="processIncidentals" />
@@ -4391,23 +4688,59 @@
     <Type>NPE</Type>
     </xsl:if>
     -->
-    <xsl:if test="index-of($evk, $_u)">
+
+    <!-- 20240921: Add internally defined _unknown_ user as a NPE user -->
+
+    <!-- 20250427: Use map rather than index 
+    <xsl:if test="index-of($evk, $_u) or $_u = '_unknown_'">
+    <Type>NPE</Type>
+    </xsl:if>
+    -->
+    <xsl:if test="map:contains($wellKnownNPELinuxUsers, $_u)">
       <Type>NPE</Type>
     </xsl:if>
     <Id>
-      <xsl:choose>
 
-        <!-- Extract out the uid if we have the form 'unknown(<uid>)' -->
-        <xsl:when test="matches($_u, 'unknown\(\d+\)')">
-          <xsl:value-of select="substring-before(substring-after($_u, '('), ')')" />
-        </xsl:when>
-        <xsl:when test="matches($_u, '.+?\(\d+\)')">
-          <xsl:value-of select="substring-before($_u, '(')" />
-        </xsl:when>
-        <xsl:otherwise>
-          <xsl:value-of select="$_u" />
-        </xsl:otherwise>
+      <!-- Extract out the uid if we have the form 'unknown(<uid>)' -->
+
+      <!-- 20240510: Depricated in favour of analyze-string solution
+      <xsl:choose>
+      <xsl:when test="matches($_u, '^unknown\(\d+\)$')">
+      <xsl:value-of select="substring-before(substring-after($_u, '('), ')')" />
+      </xsl:when>
+      <xsl:when test="matches($_u, '.+?\(\d+\)')">
+      <xsl:value-of select="substring-before($_u, '(')" />
+      </xsl:when>
+      <xsl:otherwise>
+      <xsl:value-of select="$_u" />
+      </xsl:otherwise>
       </xsl:choose>
+      -->
+
+      <!-- 20240510: More efficiently parse user names for
+      unknown(id)
+      name(id)
+      everythingelse
+      -->
+      <xsl:analyze-string select="$_u" regex="^([^\(]+)\((\d+)\)$">
+        <xsl:matching-substring>
+          <xsl:choose>
+
+            <!-- If we have unknown(id), choose the id part -->
+            <xsl:when test="regex-group(1) = 'unknown'">
+              <xsl:value-of select="regex-group(2)" />
+            </xsl:when>
+
+            <!-- Otherwise choose the name part -->
+            <xsl:otherwise>
+              <xsl:value-of select="regex-group(1)" />
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:matching-substring>
+        <xsl:non-matching-substring>
+          <xsl:value-of select="$_u" />
+        </xsl:non-matching-substring>
+      </xsl:analyze-string>
     </Id>
   </xsl:template>
 
@@ -4570,6 +4903,17 @@
     <xsl:if test="not(contains('1357',$mode))">
       <Deny>Execute</Deny>
     </xsl:if>
+  </xsl:template>
+
+  <!-- 20240922: Decode a audit_encode_nv_string(3) hex encoded string -->
+  <xsl:template name="decode_audit_nv_string">
+    <xsl:param name="str" />
+    <xsl:variable name="slen" select="string-length($str)" />
+    <xsl:for-each select="1 to ceiling($slen div 2)">
+      <xsl:variable name="start" select="(position() - 1) * 2 + 1" />
+      <xsl:variable name="decimalValue" select="xs:integer(stroom:hex-to-dec(substring($str, $start, 2)))" />
+      <xsl:value-of select="codepoints-to-string($decimalValue)" />
+    </xsl:for-each>
   </xsl:template>
 
   <!-- -->

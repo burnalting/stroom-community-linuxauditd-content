@@ -120,6 +120,16 @@
                   <data name="data" value="$8" />
                 </regex>
 
+                <!-- 20251219: Cater for other TTY records which can have anything in their data field -->
+                <regex pattern="pid=([^ ]+)\suid=([^ ]+)\sauid=([^ ]+)\sses=([^ ]+)\ssubj=([^ ]+)\sdata=(.+)">
+                  <data name="pid" value="$1" />
+                  <data name="uid" value="$2" />
+                  <data name="auid" value="$3" />
+                  <data name="ses" value="$4" />
+                  <data name="subj" value="$5" />
+                  <data name="data" value="$6" />
+                </regex>
+
                 <!-- certain avc records -->
                 <regex pattern="pid=([^ ]+)\suid=([^ ]+)\sauid=([^ ]+)\sses=([^ ]+)\ssubj=([^ ]+)\smsg=.avc:\s+(.+)'$">
                   <data name="pid" value="$1" />
