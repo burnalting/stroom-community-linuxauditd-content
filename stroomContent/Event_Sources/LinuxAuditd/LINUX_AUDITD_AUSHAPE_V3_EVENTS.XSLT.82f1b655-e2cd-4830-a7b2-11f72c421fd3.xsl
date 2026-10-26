@@ -3,6 +3,14 @@
 
   <!--
   Change Log:
+  20261024
+  - Support chroot systemcall
+  - Reassessed bpf records as being the primary action and associated syscalls the incidental
+  - Add export BPRM_FCAPS fields to processIncidentals
+  20260819
+  - Cater for recommended kernel change dated 13 Aug 2026 to cater for more than four args - a0,a1,a2,a3, in a syscall being recorded
+  20260321
+  - Add support for capset system call
   20251220:
   - Add support for all the 32 bit socketcall system calls
   20251219:
@@ -162,7 +170,7 @@
   - Better model service_start/stop (have TypeId provide service name)
   - BPF calls are unsolicited and can be part of a syscall (if monitoring the bpf syscall), cater for this
   Note that BPF Unload program id is always zero (wef 20221221) based on the kernel code. Have requested a bug report be submitted,
-  via the audit kernel mailing list.
+  via the audit kernel mailing list. Corrected
   - We currently ignore single record BPF LOAD/UNLOAD events
   - Add exit value to processIncidentals
   - Improve openat|faccessat system call wrt flags location
@@ -413,7 +421,7 @@
       <xsl:when test="data/user_mgmt/op/@i = 'pam_tally2' and data/user_mgmt/reset/@i = '0'" />
 
       <!-- 20221221: Don't record unsolicited BPF load or unload events as they have no value at the moment.
-      Ensure we only target single record bpf events -->
+      Ensure we ignore single record bpf events -->
       <xsl:when test="data/bpf and count(data/*)=1" />
       <xsl:otherwise>
         <Event>
@@ -776,10 +784,13 @@
           <xsl:value-of select="name(data/syscall)" />
         </xsl:when>
 
-        <!-- 20221221: If an unsolicted BPF event is associated with a syscall, the syscall wins -->
+        <!-- 20221221: If an unsolicted BPF event is associated with a syscall, the syscall wins 
+        20251024 - incorrect, the syscall is the incidental activity and the bpf activity is the primary-->
+        <!--
         <xsl:when test="name(data/*[1]) = 'bpf' and data/syscall">
           <xsl:value-of select="name(data/syscall)" />
         </xsl:when>
+        -->
         <xsl:otherwise>
           <xsl:value-of select="name(data/*[1])" />
         </xsl:otherwise>
@@ -1039,6 +1050,13 @@
           <xsl:call-template name="emitSetxattr" />
         </xsl:when>
 
+        <!-- 20260321 -->
+
+        <!-- capset -->
+        <xsl:when test="$act='syscall' and matches($subact,'capset')">
+          <xsl:call-template name="emitCapset" />
+        </xsl:when>
+
         <!-- open -->
 
         <!-- 20221221: Add faccessat2 -->
@@ -1103,6 +1121,14 @@
           </xsl:call-template>
         </xsl:when>
 
+        <!-- 20261024
+        chroot
+        -->
+        <xsl:when test="$act='syscall' and $subact='chroot'">
+          <xsl:call-template name="emitConfigChange">
+            <xsl:with-param name="_change" select="'FilesystemRoot'" />
+          </xsl:call-template>
+        </xsl:when>
         <!-- create -->
         <xsl:when test="$act='syscall' and (contains($subact,'creat') or contains($subact, 'truncate'))">
           <xsl:call-template name="emitCreate" />
@@ -2565,6 +2591,28 @@
     </Update>
   </xsl:template>
 
+  <!-- 20260321 -->
+
+  <!-- emitCapset -->
+  <xsl:template name="emitCapset">
+    <Update>
+      <After>
+        <Configuration>
+          <Type>CapabilitySetting</Type>
+          <Data Name="Effective" Value="{data/capset/cap_pe/@i}" />
+          <Data Name="Inheritable" Value="{data/capset/cap_pi/@i}" />
+          <Data Name="Permitted" Value="{data/capset/cap_pp/@i}" />
+          <Data Name="Ambient" Value="{data/capset/cap_pa/@i}" />
+        </Configuration>
+      </After>
+      <xsl:call-template name="emitOutcome" />
+      <xsl:call-template name="processIncidentals" />
+
+      <!-- 20221221: We want path details for this filesystem related activity -->
+      <xsl:call-template name="processPathIncidentals" />
+    </Update>
+  </xsl:template>
+
   <!-- emitChdir -->
   <xsl:template name="emitChdir">
     <Update>
@@ -3677,6 +3725,31 @@
             </Configuration>
           </After>
         </xsl:when>
+        
+        <!-- 20261024 - chroot -->
+        <xsl:when test="data/syscall/syscall/@i = 'chroot'">
+        <Before>
+          <Configuration>
+            <Type>
+              <xsl:value-of select="$_change" />
+            </Type>
+            <Data Name="OldRoot" Value="/"/>
+          </Configuration>
+        </Before>
+        <After>
+          <Configuration>
+            <Type>
+              <xsl:value-of select="$_change" />
+            </Type>
+            <Data Name="NewRoot">
+              <xsl:attribute name="Value">
+                <xsl:value-of select="data/path/item/name/@i"/>
+              </xsl:attribute>
+            </Data> 
+          </Configuration>
+        </After>
+        </xsl:when>
+        <!-- -->
         <xsl:otherwise>
           <After>
             <Configuration>
@@ -3819,17 +3892,41 @@
     </Update>
   </xsl:template>
 
-  <!-- emitBPFUpdate -->
+  <!-- emitBPFUpdate 
+  20261024:
+  When you see a BPF + SYSCALL pair:
+  Treat the BPF record (op=LOAD / op=UNLOAD + prog-id) as the significant action.
+  Use the SYSCALL / PROCTITLE / comm / exe fields mainly for context (which process was involved).
+  Do not assume the SYSCALL itself was the intentional action that loaded or unloaded the program — especially on UNLOAD events.
+  This is why many security teams watch for unexpected op=LOAD from non-system binaries more carefully than the accompanying SYSCALL.
+  
+  On op=LOAD: The BPF program is loaded via the bpf() syscall. In that case the SYSCALL
+  record is frequently the actual bpf call and is directly relevant.
+  On op=UNLOAD: Unloading happens when the last reference to the program is dropped.
+  This can occur:
+    When a process exits
+    When a file descriptor is closed
+    When a map or program is released by the kernel
+    During normal cleanup inside a daemon
+  The process that drops the last reference may be doing something completely unrelated
+  at that exact moment (a read, write, poll, etc.). The kernel still attaches a SYSCALL
+  record for whatever was happening in that process context, but it is not the cause
+  of the unload
+  -->
   <xsl:template name="emitBPFUpdate">
     <Update>
       <After>
         <Object>
           <Type>ProgramId</Type>
           <Id>
-            <xsl:value-of select="data//progid/@i" />
+            <!-- 20261024 - can also be prog-id -->
+            <xsl:value-of select="data//(progid|prog-id)/@i" />
           </Id>
         </Object>
       </After>
+      <!-- 20261024: Add context -->
+         <xsl:call-template name="emitOutcome" />
+      <xsl:call-template name="processIncidentals" />
     </Update>
   </xsl:template>
 
@@ -4570,19 +4667,32 @@
 
     <!-- If a syscall, provide all a* args -->
     <xsl:if test="data/syscall">
+
+      <!--
       <xsl:variable name="sargs">
-        <xsl:if test="data/syscall/a0/@i">
-          <xsl:value-of select="concat('a0=', data/syscall/a0/@i)" />
-        </xsl:if>
-        <xsl:if test="data/syscall/a1/@i">
-          <xsl:value-of select="concat(' a1=', data/syscall/a1/@i)" />
-        </xsl:if>
-        <xsl:if test="data/syscall/a2/@i">
-          <xsl:value-of select="concat(' a2=', data/syscall/a2/@i)" />
-        </xsl:if>
-        <xsl:if test="data/syscall/a3/@i">
-          <xsl:value-of select="concat(' a3=', data/syscall/a3/@i)" />
-        </xsl:if>
+      
+      <xsl:if test="data/syscall/a0/@i">
+      <xsl:value-of select="concat('a0=', data/syscall/a0/@i)" />
+      </xsl:if>
+      <xsl:if test="data/syscall/a1/@i">
+      <xsl:value-of select="concat(' a1=', data/syscall/a1/@i)" />
+      </xsl:if>
+      <xsl:if test="data/syscall/a2/@i">
+      <xsl:value-of select="concat(' a2=', data/syscall/a2/@i)" />
+      </xsl:if>
+      <xsl:if test="data/syscall/a3/@i">
+      <xsl:value-of select="concat(' a3=', data/syscall/a3/@i)" />
+      </xsl:if>
+      
+      
+      </xsl:variable> -->
+      <!-- 20260819: Cater for recommended kernel change dated 13 Aug 2026 to cater for more than four args - a0,a1,a2,a3 -->
+      <xsl:variable name="sargs">
+        <xsl:for-each select="data/syscall/*[matches(local-name(), '^a[0-9]+$')][@i]">
+          <xsl:sort select="xs:integer(substring-after(local-name(), 'a'))" data-type="number" order="ascending" />
+          <xsl:value-of select="if (position() gt 1) then ' ' else ''" />
+          <xsl:value-of select="concat(local-name(), '=', @i)" />
+        </xsl:for-each>
       </xsl:variable>
 
       <!-- 20221221: Add the syscall itself for those events that are not syscalls -->
@@ -4640,6 +4750,22 @@
     <!-- 20230614: Add svc -->
     <xsl:if test="data//avc">
       <Data Name="avc" Value="{data//avc/@i}" />
+    </xsl:if>
+    
+    <!-- 20261024: Add BPRM_FCAPS - Binary program file capabilities
+    - information about file system capabilities increasing permissions
+    fver: Version of the file's capability xattr format (0 = no/legacy caps)
+    fp, fi: Permitted/inheritable capabilities granted by the file
+    fe: The file's "effective" bit - if set, the new caps are immediately
+    (almost) effective
+    old_pp/pi/pe/pa: Process permitted / inheritable / effective / ambient sets before exec
+    pp/pi/pe/pa: The same four sets after exec
+    frootid: The rootid used to map the files caps into user space
+    -->
+    <xsl:if test="data/bprm_fcaps">
+       <xsl:for-each select="data/bprm_fcaps/*">
+         <Data Name="{concat('bprm_', local-name())}" Value="{@i}"/>
+        </xsl:for-each>
     </xsl:if>
   </xsl:template>
 
